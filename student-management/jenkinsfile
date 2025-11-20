@@ -1,10 +1,69 @@
 pipeline {
     agent any
+
+    tools {
+        maven 'Maven-3'
+    }
+
     stages {
+
         stage('Hello') {
             steps {
-                echo 'Hello world !'
+                echo 'Hello world'
             }
+        }
+
+        stage('Récupération du code') {
+            steps {
+                echo ">>> Étape 1 : Je récupère le code depuis Git..."
+                git url: 'https://github.com/mohamed-amine-mami/devops4sim2.git'
+            }
+        }
+
+        stage('Debug — workspace files') {
+            steps {
+                sh 'ls -R .'
+            }
+        }
+
+        stage('Tests unitaires') {
+            steps {
+                echo ">>> Étape 2 : Je lance les tests Maven..."
+                dir('student-management') {
+                    sh 'mvn -B test'
+                }
+            }
+            post {
+                always {
+                    echo ">>> Publication des résultats de tests"
+                    junit 'student-management/target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Création du livrable') {
+            steps {
+                echo ">>> Étape 3 : Je génère le package JAR..."
+                dir('student-management') {
+                    sh 'mvn -B package'
+                }
+            }
+        }
+
+        stage('Archivage du livrable') {
+            steps {
+                echo ">>> Étape 4 : J’archive le livrable..."
+                archiveArtifacts artifacts: 'student-management/target/*.jar', fingerprint: true
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "🎉 BUILD SUCCESS — Pipeline terminé avec succès"
+        }
+        failure {
+            echo "❌ BUILD FAILED — Vérifie la console Jenkins pour les erreurs"
         }
     }
 }
