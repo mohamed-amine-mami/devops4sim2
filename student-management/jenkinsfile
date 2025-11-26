@@ -16,7 +16,9 @@ pipeline {
         stage('Récupération du code') {
             steps {
                 echo ">>> Étape 1 : Je récupère le code depuis Git..."
-                git url: 'https://github.com/mohamed-amine-mami/devops4sim2.git'
+                dir('devops4sim2') {
+                    git branch: 'main', url: 'https://github.com/mohamed-amine-mami/devops4sim2.git'
+                }
             }
         }
 
@@ -29,14 +31,13 @@ pipeline {
         stage('Tests unitaires') {
             steps {
                 echo ">>> Étape 2 : Je lance les tests Maven..."
-                dir('student-management') {
+                dir('devops4sim2/student-management') {
                     sh 'mvn -B test'
                 }
             }
             post {
                 always {
-                    echo ">>> Publication des résultats de tests"
-                    junit 'student-management/target/surefire-reports/*.xml'
+                    junit 'devops4sim2/student-management/target/surefire-reports/*.xml'
                 }
             }
         }
@@ -44,7 +45,7 @@ pipeline {
         stage('Création du livrable') {
             steps {
                 echo ">>> Étape 3 : Je génère le package JAR..."
-                dir('student-management') {
+                dir('devops4sim2/student-management') {
                     sh 'mvn -B package'
                 }
             }
@@ -53,7 +54,7 @@ pipeline {
         stage('Archivage du livrable') {
             steps {
                 echo ">>> Étape 4 : J’archive le livrable..."
-                archiveArtifacts artifacts: 'student-management/target/*.jar', fingerprint: true
+                archiveArtifacts artifacts: 'devops4sim2/student-management/target/*.jar', fingerprint: true
             }
         }
     }
