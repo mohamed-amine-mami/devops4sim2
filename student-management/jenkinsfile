@@ -2,18 +2,26 @@ pipeline {
     agent any
 
     tools {
-        jdk 'JDK-17'
         maven 'Maven-3'
+        jdk 'JDK-17'
+    }
+
+    environment {
+        DOCKER_IMAGE = "student-management"
+        DOCKERHUB_REPO = "r3aad/student-management"
     }
 
     stages {
 
+        /* -------- CHECKOUT CODE -------- */
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/mohamed-amine-mami/devops4sim2.git'
+                git branch: 'main',
+                    url: 'https://github.com/mohamed-amine-mami/devops4sim2.git'
             }
         }
 
+        /* -------- VERIFY ENVIRONMENT -------- */
         stage('Verify Environment') {
             steps {
                 sh 'mvn --version'
@@ -22,32 +30,69 @@ pipeline {
             }
         }
 
-        stage('Build Maven') {
+        /* -------- BUILD MAVEN PROJECT -------- */
+        stage('Build Maven Package') {
             steps {
-                dir('student-management') {   // 🔥 FIX: Run inside the folder
+                dir('student-management') {
                     sh 'mvn -B clean package -DskipTests'
                 }
             }
         }
 
+        /* -------- BUILD DOCKER IMAGE -------- */
         stage('Build Docker Image') {
             steps {
-                dir('student-management') {   // 🔥 Must be inside this folder
-                    sh 'docker build -t student-management .'
+                dir('student-management') {
+                    sh '''
+                        echo "Building Docker Image..."
+                        docker build -t ${DOCKER_IMAGE} .
+                    '''
                 }
             }
         }
 
+        /* -------- PUSH IMAGE TO DOCKER HUB -------- */
         stage('Push Docker Image') {
             steps {
-                dir('student-management') {
-                    sh '''
-                        docker tag student-management r3aad/student-management:latest
-                        docker login -u r3aad -p YOUR_DOCKERHUB_TOKEN
-                        docker push r3aad/student-management:latest
-                    '''
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub',  // 🔥 YOUR JENKINS CREDENTIAL ID HERE
+                    usernameVariable: 'r3aad',
+                    passwordVariable: 'dckr_pat_M1YDWVm0CIVgT3I8SeV5qz-tu8I'
+                )]) {
+                    dir('student-management') {
+                        sh '''
+                            echo "Logging into Docker Hub..."
+                            echo $TOKEN | docker login -u $USER --password-stdin
+
+                            echo "Tagging image..."
+                            docker tag ${DOCKER_IMAGE}:latest ${DOCKERHUB_REPO}:latest
+
+                            echo "Pushing image..."
+                            docker push ${DOCKERHUB_REPO}:latest
+                        '''
+                    }
                 }
             }
+        }
+
+        /* -------- TEST THE IMAGE LOCALLY (optional) -------- */
+        stage('Test Docker Image') {
+            steps {
+                sh 'docker images'
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "Cleaning workspace..."
+            cleanWs()
+        }
+        success {
+            echo "🎉 BUILD SUCCESSFUL"
+        }
+        failure {
+            echo "❌ BUILD FAILED — check logs"
         }
     }
 }
