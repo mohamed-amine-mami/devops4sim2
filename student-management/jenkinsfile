@@ -30,7 +30,7 @@ pipeline {
             }
         }
 
-        /* -------- BUILD MAVEN PROJECT -------- */
+        /* -------- MAVEN BUILD -------- */
         stage('Build Maven Package') {
             steps {
                 dir('student-management') {
@@ -39,43 +39,61 @@ pipeline {
             }
         }
 
-        /* -------- BUILD DOCKER IMAGE -------- */
-        stage('Build Docker Image') {
+        /* -------- SONARQUBE ANALYSIS -------- */
+        stage('SonarQube Analysis') {
             steps {
-                dir('student-management') {
-                    sh '''
-                        echo "Building Docker Image..."
-                        docker build -t ${DOCKER_IMAGE} .
-                    '''
+                withSonarQubeEnv('MySonar') {
+                    dir('student-management') {
+                        sh """
+                            mvn sonar:sonar \
+                            -Dsonar.projectKey=student-management \
+                            -Dsonar.projectName=student-management \
+                            -Dsonar.host.url=http://localhost:9000 \
+                            -Dsonar.login=\$SONAR_AUTH_TOKEN
+                        """
+                    }
                 }
             }
         }
 
-        /* -------- PUSH IMAGE TO DOCKER HUB -------- */
+        /* -------- WAIT FOR QUALITY GATE -------- */
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 2, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        /* -------- DOCKER BUILD -------- */
+        stage('Build Docker Image') {
+            steps {
+                dir('student-management') {
+                    sh "docker build -t ${DOCKER_IMAGE} ."
+                }
+            }
+        }
+
+        /* -------- DOCKER HUB PUSH -------- */
         stage('Push Docker Image') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub',  // 🔥 YOUR JENKINS CREDENTIAL ID HERE
-                    usernameVariable: 'r3aad',
-                    passwordVariable: 'dckr_pat_M1YDWVm0CIVgT3I8SeV5qz-tu8I'
+                    credentialsId: 'dockerhub',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
                 )]) {
                     dir('student-management') {
                         sh '''
-                            echo "Logging into Docker Hub..."
-                            echo $TOKEN | docker login -u $USER --password-stdin
-
-                            echo "Tagging image..."
-                            docker tag ${DOCKER_IMAGE}:latest ${DOCKERHUB_REPO}:latest
-
-                            echo "Pushing image..."
-                            docker push ${DOCKERHUB_REPO}:latest
+                            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                            docker tag student-management:latest r3aad/student-management:latest
+                            docker push r3aad/student-management:latest
                         '''
                     }
                 }
             }
         }
 
-        /* -------- TEST THE IMAGE LOCALLY (optional) -------- */
+        /* -------- TEST DOCKER IMAGE -------- */
         stage('Test Docker Image') {
             steps {
                 sh 'docker images'
