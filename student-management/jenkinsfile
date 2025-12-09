@@ -7,12 +7,14 @@ pipeline {
     }
 
     environment {
-        DOCKER_IMAGE = "student-management"
-        DOCKERHUB_REPO = "r3aad/student-management"
+        DOCKER_IMAGE          = "student-management"
+        DOCKERHUB_REPO        = "r3aad/student-management"
+        K8S_NAMESPACE         = "devops"
+        // Pour SonarQube qui tourne DANS le cluster Kubernetes
+        SONAR_SERVICE         = "sonarqube-service"  // on créera ce service plus bas
     }
 
     stages {
-
         /* -------- CHECKOUT CODE -------- */
         stage('Checkout') {
             steps {
@@ -27,6 +29,7 @@ pipeline {
                 sh 'mvn --version'
                 sh 'java -version'
                 sh 'docker --version'
+                sh 'kubectl version --client'
             }
         }
 
@@ -39,77 +42,94 @@ pipeline {
             }
         }
 
-        /* -------- SONARQUBE ANALYSIS -------- */
+        /* -------- SONARQUBE ANALYSIS (dans le cluster) -------- */
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('MySonar') {
+                withSonarQubeEnv('MySonar') {   // 'MySonar' doit être configuré dans Jenkins Global Config
                     dir('student-management') {
                         sh """
-                            mvn sonar:sonar \
-                            -Dsonar.projectKey=student-management \
-                            -Dsonar.projectName=student-management \
-                            -Dsonar.host.url=http://localhost:9000
+                        mvn sonar:sonar \
+                          -Dsonar.projectKey=student-management \
+                          -Dsonar.projectName="Student Management" \
+                          -Dsonar.host.url=http://${SONAR_SERVICE}:9000
                         """
                     }
                 }
             }
         }
 
-        /* -------- WAIT FOR QUALITY GATE -------- */
+        /* -------- QUALITY GATE -------- */
         stage('Quality Gate') {
             steps {
-                timeout(time: 2, unit: 'MINUTES') {
+                timeout(time: 3, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        /* -------- DOCKER BUILD -------- */
-        stage('Build Docker Image') {
+        /* -------- DOCKER BUILD & PUSH -------- */
+        stage('Build & Push Docker Image') {
             steps {
                 dir('student-management') {
-                    sh "docker build -t ${DOCKER_IMAGE} ."
-                }
-            }
-        }
-
-        /* -------- DOCKER HUB PUSH -------- */
-        stage('Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
-                    dir('student-management') {
+                    sh "docker build -t ${DOCKER_IMAGE}:latest ."
+                    
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
                         sh '''
-                            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                            docker tag student-management:latest r3aad/student-management:latest
-                            docker push r3aad/student-management:latest
+                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                        docker tag  ${DOCKER_IMAGE}:latest ${DOCKERHUB_REPO}:latest
+                        docker tag  ${DOCKER_IMAGE}:latest ${DOCKERHUB_REPO}:${BUILD_NUMBER}
+                        docker push ${DOCKERHUB_REPO}:latest
+                        docker push ${DOCKERHUB_REPO}:${BUILD_NUMBER}
                         '''
                     }
                 }
             }
         }
 
-        /* -------- TEST DOCKER IMAGE -------- */
-        stage('Test Docker Image') {
+        /* -------- DÉPLOIEMENT KUBERNETES (la partie qui manquait !) -------- */
+        stage('Deploy to Kubernetes') {
             steps {
-                sh 'docker images'
+                script {
+                    // On utilise l'image qu'on vient de pousser sur Docker Hub
+                    sh """
+                    kubectl -n ${K8S_NAMESPACE} set image deployment/spring-deployment \
+                        spring=${DOCKERHUB_REPO}:${BUILD_NUMBER} --record
+                    
+                    kubectl -n ${K8S_NAMESPACE} rollout status deployment/spring-deployment --timeout=180s
+                    """
+                }
+            }
+        }
+
+        /* -------- TEST FINAL DE L'APPLICATION -------- */
+        stage('Test Application') {
+            steps {
+                script {
+                    def url = sh(script: "minikube service spring-service -n ${K8S_NAMESPACE} --url | head -1", returnStdout: true).trim()
+                    echo "URL de l'application : ${url}"
+                    
+                    // Test simple d'un endpoint (adapte selon ton API)
+                    sh "curl -f ${url}/department/getAllDepartment || exit 1"
+                    echo "Application accessible et fonctionnelle !"
+                }
             }
         }
     }
 
     post {
         always {
-            echo "Cleaning workspace..."
+            echo "Nettoyage du workspace..."
             cleanWs()
         }
         success {
-            echo "🎉 BUILD SUCCESSFUL"
+            echo "PIPELINE TERMINÉ AVEC SUCCÈS - TOUT LE WORKSHOP EST VALIDÉ !"
         }
         failure {
-            echo "❌ BUILD FAILED — check logs"
+            echo "ÉCHEC DU PIPELINE - Vérifie les logs"
         }
     }
 }
