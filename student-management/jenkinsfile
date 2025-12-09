@@ -7,12 +7,12 @@ pipeline {
     }
 
     environment {
-        DOCKER_IMAGE          = "student-management"
-        DOCKERHUB_REPO        = "r3aad/student-management"
-        K8S_NAMESPACE         = "devops"
+        DOCKER_IMAGE = "student-management"
+        DOCKERHUB_REPO = "r3aad/student-management"
     }
 
     stages {
+
         /* -------- CHECKOUT CODE -------- */
         stage('Checkout') {
             steps {
@@ -27,7 +27,6 @@ pipeline {
                 sh 'mvn --version'
                 sh 'java -version'
                 sh 'docker --version'
-                sh 'kubectl version --client'
             }
         }
 
@@ -40,74 +39,81 @@ pipeline {
             }
         }
 
-        // SONARQUBE TEMPORAIREMENT DÉSACTIVÉ (on le remettra après la validation du workshop)
-        // stage('SonarQube Analysis') { ... }
-        // stage('Quality Gate') { ... }
+        /* -------- SONARQUBE ANALYSIS -------- */
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('MySonar') {
+                    dir('student-management') {
+                        sh """
+                            mvn sonar:sonar \
+                            -Dsonar.projectKey=student-management \
+                            -Dsonar.projectName=student-management \
+                            -Dsonar.host.url=http://localhost:9000
+                        """
+                    }
+                }
+            }
+        }
 
-        /* -------- DOCKER BUILD & PUSH -------- */
-        stage('Build & Push Docker Image') {
+        /* -------- WAIT FOR QUALITY GATE -------- */
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 2, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        /* -------- DOCKER BUILD -------- */
+        stage('Build Docker Image') {
             steps {
                 dir('student-management') {
-                    sh "docker build -t ${DOCKER_IMAGE}:latest ."
-                    
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
+                    sh "docker build -t ${DOCKER_IMAGE} ."
+                }
+            }
+        }
+
+        /* -------- DOCKER HUB PUSH -------- */
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    dir('student-management') {
                         sh '''
-                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                        docker tag ${DOCKER_IMAGE}:latest ${DOCKERHUB_REPO}:latest
-                        docker tag ${DOCKER_IMAGE}:latest ${DOCKERHUB_REPO}:${BUILD_NUMBER}
-                        docker push ${DOCKERHUB_REPO}:latest
-                        docker push ${DOCKERHUB_REPO}:${BUILD_NUMBER}
+                            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                            docker tag student-management:latest r3aad/student-management:latest
+                            docker push r3aad/student-management:latest
                         '''
                     }
                 }
             }
         }
 
-        /* -------- DÉPLOIEMENT KUBERNETES -------- */
-        stage('Deploy to Kubernetes') {
+        /* -------- TEST DOCKER IMAGE -------- */
+        stage('Test Docker Image') {
             steps {
-                // Création du namespace + déploiement complet (première fois ou si supprimé)
-                sh "kubectl apply -f k8s/namespace.yaml || true"
-                sh "kubectl apply -f k8s/mysql-deployment.yaml"
-                sh "kubectl apply -f k8s/spring-deployment.yaml"
-
-                // Mise à jour de l'image avec la nouvelle version
-                sh """
-                kubectl -n ${K8S_NAMESPACE} set image deployment/spring-deployment \
-                    spring=${DOCKERHUB_REPO}:${BUILD_NUMBER} --record
-                
-                kubectl -n ${K8S_NAMESPACE} rollout status deployment/spring-deployment --timeout=180s
-                """
-            }
-        }
-
-        /* -------- TEST FINAL DE L'APPLICATION -------- */
-        stage('Test Application') {
-            steps {
-                script {
-                    def url = sh(script: "minikube service spring-service -n ${K8S_NAMESPACE} --url | head -1", returnStdout: true).trim()
-                    echo "Application accessible ici → ${url}"
-                    sh "curl -f ${url}/department/getAllDepartment || exit 1"
-                    echo "TOUT FONCTIONNE PARFAITEMENT ! WORKSHOP 100% RÉUSSI !"
-                }
+                sh 'docker images'
             }
         }
     }
 
     post {
         always {
-            echo "Nettoyage du workspace..."
+            echo "Cleaning workspace..."
             cleanWs()
         }
         success {
-            echo "PIPELINE TERMINÉ AVEC SUCCÈS - TU AS FINI LE WORKSHOP KUBERNETES !!"
+            echo "🎉 BUILD SUCCESSFUL"
         }
         failure {
-            echo "ÉCHEC - regarde les logs ci-dessus"
+            echo "❌ BUILD FAILED — check logs"
         }
     }
 }
+
+
+
+1
