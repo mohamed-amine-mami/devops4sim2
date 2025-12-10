@@ -26,7 +26,6 @@ pipeline {
                         export KUBECONFIG=/var/lib/jenkins/.kube/config
 
                         echo "=== Configuration Kubernetes ==="
-
                         kubectl create namespace ${env.K8S_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
                         kubectl cluster-info
                     """
@@ -40,14 +39,19 @@ pipeline {
             }
         }
 
+        /*  
+        =======================================================================
+        === 🚫 SonarQube COMPLETEMENT DÉSACTIVÉ (commenté proprement)       ===
+        =======================================================================
         stage('SonarQube Analysis') {
             steps {
-                // IMPORTANT: ici on met le vrai nom de ton SonarQube → "MySonar"
-                withSonarQubeEnv('MySonar') {
+                withSonarQubeEnv('sonarqube') {
                     sh 'mvn sonar:sonar -Dsonar.projectKey=student-management'
                 }
             }
         }
+        =======================================================================
+        */
 
         stage('Package') {
             steps {
@@ -80,28 +84,14 @@ pipeline {
             }
         }
 
-        stage('Deploy SonarQube on K8S') {
-            steps {
-                script {
-                    sh """
-                        export KUBECONFIG=/var/lib/jenkins/.kube/config
-
-                        echo "=== Déploiement de SonarQube sur K8S ==="
-
-                        kubectl apply -f sonarqube-persistentvolume.yaml -n ${env.K8S_NAMESPACE} 2>/dev/null || echo "PV déjà existant"
-                        kubectl apply -f sonarqube-persistentvolumeclaim.yaml -n ${env.K8S_NAMESPACE}
-                        kubectl apply -f sonarqube-deployment.yaml -n ${env.K8S_NAMESPACE}
-                        kubectl apply -f sonarqube-service.yaml -n ${env.K8S_NAMESPACE}
-
-                        echo "SonarQube déployé. Attente du démarrage..."
-                        sleep 60
-
-                        kubectl get pods -l app=sonarqube -n ${env.K8S_NAMESPACE}
-                        echo "URL SonarQube: http://localhost:30090"
-                    """
-                }
-            }
-        }
+        /*  
+        =======================================================================
+        === 🚫 Tous les stages SonarQube K8S désactivés                      ===
+        =======================================================================
+        stage('Deploy SonarQube on K8S') { ... }
+        stage('Verify SonarQube on K8S') { ... }
+        =======================================================================
+        */
 
         stage('Deploy MySQL on K8S') {
             steps {
@@ -110,39 +100,9 @@ pipeline {
                         export KUBECONFIG=/var/lib/jenkins/.kube/config
 
                         echo "=== Déploiement de MySQL sur K8S ==="
-
                         kubectl apply -f mysql-deployment.yaml -n ${env.K8S_NAMESPACE}
-
-                        echo "MySQL déployé. Attente du démarrage..."
                         sleep 30
-
                         kubectl get pods -l app=mysql -n ${env.K8S_NAMESPACE}
-                    """
-                }
-            }
-        }
-
-        stage('Verify SonarQube on K8S') {
-            steps {
-                script {
-                    sh """
-                        export KUBECONFIG=/var/lib/jenkins/.kube/config
-
-                        echo "=== Vérification de SonarQube sur K8S ==="
-
-                        echo "Attente de SonarQube..."
-                        for i in {1..30}; do
-                            if curl -s -f http://localhost:30090/api/system/status 2>/dev/null | grep -q "UP"; then
-                                echo "✓ SonarQube est prêt!"
-                                break
-                            fi
-                            echo "En attente... (\$i/30)"
-                            sleep 10
-                        done || echo "SonarQube prend du temps à démarrer"
-
-                        curl -s http://localhost:30090/api/system/status || echo "SonarQube non accessible"
-
-                        curl -s "http://localhost:30090/api/projects/search?projects=student-management" | head -5 || echo "Impossible de vérifier le projet"
                     """
                 }
             }
@@ -158,8 +118,6 @@ pipeline {
 
                         export KUBECONFIG=/var/lib/jenkins/.kube/config
                         kubectl apply -f spring-deployment.yaml -n ${env.K8S_NAMESPACE}
-
-                        echo "Spring Boot déployé. Attente du démarrage..."
                         sleep 30
 
                         kubectl get pods -l app=spring-boot-app -n ${env.K8S_NAMESPACE}
@@ -179,9 +137,6 @@ pipeline {
                         kubectl get pods -n ${env.K8S_NAMESPACE} -o wide
                         kubectl get svc -n ${env.K8S_NAMESPACE}
 
-                        kubectl logs deployment/sonarqube-deployment -n ${env.K8S_NAMESPACE} --tail=5 2>/dev/null || echo "Pas de logs disponibles"
-
-                        echo "4. URL SonarQube: http://localhost:30090"
                         echo "5. URL Application: http://localhost:30080/student"
                     """
                 }
@@ -192,7 +147,6 @@ pipeline {
     post {
         success {
             echo "✅ Build ${env.BUILD_NUMBER} réussi !"
-            echo "🔗 SonarQube: http://localhost:30090"
             echo "🔗 Application Spring: http://localhost:30080/student"
         }
         failure {
@@ -200,9 +154,7 @@ pipeline {
             sh '''
                 echo "=== Débogage ==="
                 export KUBECONFIG=/var/lib/jenkins/.kube/config
-
                 kubectl get pods -n devops
-                kubectl describe pod -l app=sonarqube -n devops 2>/dev/null | head -50 || true
                 kubectl describe pod -l app=mysql -n devops 2>/dev/null | head -50 || true
                 kubectl get events -n devops 2>/dev/null | tail -20 || true
             '''
