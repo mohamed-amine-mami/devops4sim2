@@ -14,8 +14,8 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'master',
-                    url: 'https://github.com/Maya-Marzouki/DevOpsPipeline-.git'
+              git branch: 'devops',
+              url: 'https://github.com/mohamed-amine-mami/devops4sim2.git'
             }
         }
 
