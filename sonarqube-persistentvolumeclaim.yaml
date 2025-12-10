@@ -1,0 +1,13 @@
+# sonarqube-persistentvolumeclaim.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarqube-pvc
+  namespace: devops  # AJOUTÉ
+spec:
+  storageClassName: manual  # AJOUTÉ pour correspondre au PV
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi

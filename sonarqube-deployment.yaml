@@ -1,0 +1,60 @@
+# sonarqube-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonarqube-deployment
+  namespace: devops  # AJOUTÉ
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonarqube
+  template:
+    metadata:
+      labels:
+        app: sonarqube
+    spec:
+      containers:
+        - name: sonarqube
+          image: sonarqube:lts-community
+          ports:
+            - containerPort: 9000
+          env:
+            - name: SONAR_JDBC_URL
+              value: "jdbc:h2:tcp://localhost:9092/sonar"
+            - name: SONAR_JDBC_USERNAME
+              value: "sonar"
+            - name: SONAR_JDBC_PASSWORD
+              value: "sonar"
+            - name: SONAR_ES_BOOTSTRAP_CHECKS_DISABLE
+              value: "true"
+            - name: SONAR_EMBEDDEDDATABASE_PORT
+              value: "9092"
+            - name: SONAR_EMBEDDEDDATABASE_DATA_DIR
+              value: "/opt/sonarqube/data"
+          resources:
+            requests:
+              memory: "2Gi"  # Réduit pour Minikube
+              cpu: "500m"
+            limits:
+              memory: "3Gi"
+              cpu: "1"
+          volumeMounts:
+            - name: sonarqube-data
+              mountPath: /opt/sonarqube/data
+          livenessProbe:
+            httpGet:
+              path: /api/system/status
+              port: 9000
+            initialDelaySeconds: 300
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/system/status
+              port: 9000
+            initialDelaySeconds: 300
+            periodSeconds: 30
+      volumes:
+        - name: sonarqube-data
+          persistentVolumeClaim:
+            claimName: sonarqube-pvc

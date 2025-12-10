@@ -1,0 +1,13 @@
+# sonarqube-persistentvolume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sonarqube-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/sonarqube-data"
+  storageClassName: manual  # AJOUTÉ pour correspondance

@@ -1,0 +1,14 @@
+# sonarqube-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarqube-service
+  namespace: devops  # AJOUTÉ
+spec:
+  selector:
+    app: sonarqube
+  ports:
+    - port: 9000
+      targetPort: 9000
+      nodePort: 30090
+  type: NodePort
